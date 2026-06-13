@@ -1,8 +1,9 @@
 import click
 import geopandas
+import logging
 from geoalchemy2.shape import from_shape
 from geopandas import GeoSeries
-from sqlalchemy import create_engine, make_url, select, text
+from sqlalchemy import create_engine, make_url, select, text, event
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -10,9 +11,19 @@ from generate import BAY_LENGTH, Structure, generate_clearspan
 from model import Base, LayerType, StructureLayer
 from model import Structure as DBStructure
 
-DEFAULT_DB = "postgresql://postgres:postgres@localhost/gis"
-DEFAULT_INIT_DB = "postgresql://postgres:postgres@localhost/postgres"
+# Load eventgis power plugin
+from plugins.powergis import PowerGIS
 
+import os, time
+from dotenv import load_dotenv
+
+# Load any environment variables from .env file if present
+load_dotenv()
+DEFAULT_DB = os.getenv('DEFAULT_DB') or "postgresql://postgres:postgres@localhost/gis"
+DEFAULT_INIT_DB = os.getenv('DEFAULT_INIT_DB') or"postgresql://postgres:postgres@localhost/postgres"
+
+logging.basicConfig()
+logging.getLogger().setLevel(logging.INFO)
 
 @click.group()
 @click.option(
@@ -21,13 +32,16 @@ DEFAULT_INIT_DB = "postgresql://postgres:postgres@localhost/postgres"
     envvar="EVENTGIS_DB",
     help="Database connection string.",
 )
+@click.option("--verbose", is_flag=True, help="Enables verbose mode.")
 @click.pass_context
-def eventgis(ctx, database):
+def eventgis(ctx, database, verbose):
     """EventGIS Command Line Interface."""
     ctx.obj["engine"] = create_engine(
         make_url(database), connect_args={"connect_timeout": 5}
     )
 
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.getLogger().setLevel(level)
 
 @eventgis.command()
 @click.option(
@@ -144,6 +158,36 @@ def clearspan(ctx, width, min_length, max_length):
 
     session.commit()
 
+
+@eventgis.group()
+def power():
+    """Manage power plan"""
+
+@power.command("run")
+@click.pass_context
+def run_power_plan(ctx):
+    """Run the power plan against current generators, cable and distro in the database"""
+    # Grab our database engine for passthrough to power plugin
+    engine = ctx.obj["engine"]
+
+    # Connect the engine
+    try:
+        connection = engine.connect()
+    except OperationalError:
+        click.echo(f"Cannot connect to database at {ctx.obj['database']}.")
+
+    # Assemble our options for PowerGIS
+    opts = {
+        "spec_dir": "spec",   # Folder of spec files for distro (https://github.com/emfcamp/powerspec)
+        "out_path": "output", # Where we want the power plan outputs to end up
+    }
+
+    # Run the power plan
+    power_plan = PowerGIS(connection, opts=opts)
+    power_plan.run()
+
+    # Clean up DB connection when we're finished
+    connection.close()
 
 if __name__ == "__main__":
     eventgis(obj={})
