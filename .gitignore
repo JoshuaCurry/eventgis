@@ -218,3 +218,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# VSCode
+.vscode/
+
+# Powerplan
+powerplan
+spec
+output/
