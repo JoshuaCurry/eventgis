@@ -7,6 +7,8 @@ New EMF mapping toolchain. Very WIP currently.
   uv run ./eventgis.py
 ```
 
+## Power Plan
+
 Make sure to have powerplan python module and spec files available in your eventgis folder. (there is probably a better way to do this)
 ```
   Clone https://github.com/emfcamp/powerplan and move ./powerplan/powerplan to ./eventgis/powerplan
