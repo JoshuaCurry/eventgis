@@ -107,7 +107,9 @@ class PowerGIS():
                 n.id,
                 e.phases,
                 e.amps,
-                round(ST_Length(e.geom)::NUMERIC, 1) AS length
+                round(ST_Length(e.geom)::NUMERIC, 1) AS length,
+                COALESCE(e.extra_length,0) as extra_length,
+                e.id as cable_id
             FROM found_edges e
             JOIN nodes_pool n ON ST_DWithin(n.geom, e.other_end_geom, :buf);
             """
@@ -119,8 +121,8 @@ class PowerGIS():
                 "buf": self.BUFFER
             }
         ):
-            self.log.debug(f"Found connection to node:{row.id} cable:{f"{row.amps}-{row.phases}"} len: {row.length}")
-            yield row.id, row.amps, row.phases, row.length
+            self.log.debug(f"Found connection to node:{row.id} cable_id: {row.cable_id} cable:{f"{row.amps}-{row.phases}"} len: {row.length} extra_length: {row.extra_length}")
+            yield row.id, row.amps, row.phases, row.length, row.extra_length
 
     def generate_plan(self) -> powerplan.Plan:
         self.log.info("Getting spec")
@@ -168,7 +170,7 @@ class PowerGIS():
         while len(tree_nodes) > 0:
             start_node, start_fid = tree_nodes.pop()
 
-            for end_fid, amps, phases, length in self.get_outbound_connections(start_fid):
+            for end_fid, amps, phases, length, extra_length in self.get_outbound_connections(start_fid):
                 end_node = nodes[end_fid]
                 if plan.graph.has_edge(end_node, start_node):
                     # Don't follow the connection we just came from.
@@ -183,7 +185,7 @@ class PowerGIS():
                 tree_nodes.append((end_node, end_fid))
 
                 plan.add_connection(
-                    start_node, end_node, amps, phases, length=length
+                    start_node, end_node, amps, phases, length=length, extra_length=extra_length
                 )
 
         return plan
@@ -346,8 +348,8 @@ class PowerGIS():
                 self.log.error(f"Could not generate BoM CSV: {e}") 
 
         # Debug - save the full plan for later analysis
-        # with open(os.path.join(out_path, "power-plan.pyobj"), "wb") as f:
-        #     import pickle
-        #     pickle.dump(plan, f)
+        with open(os.path.join(out_path, "power-plan.pyobj"), "wb") as f:
+             import pickle
+             pickle.dump(plan, f)
 
         self.log.info(f"Power plan outputs generated to [{out_path}] in {(time.time()-start):.2f} seconds")
